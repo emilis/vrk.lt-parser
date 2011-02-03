@@ -8,11 +8,6 @@ $dir = dirname(__FILE__);
 $kandidatai = "$dir/rinkimai/409_lt/Kandidatai";
 
 
-// --- Main: ---
-
-// Open output file:
-$out = fopen("$dir/kandidatai.csv", "w");
-
 // Field names:
 $fields = array(
     "id",
@@ -66,6 +61,12 @@ $fields = array(
     "kita",
 );
 
+
+// --- Main: ---
+
+// Open output file:
+$out = fopen("$dir/kandidatai.csv", "w");
+
 // Write CSV header:
 fputcsv($out, $fields);
 
@@ -113,7 +114,7 @@ function get_candidate_data($entry, $path, $f) {
     //echo "$id: $path\n";
 
     // candidate:
-    $c = array();
+    $c = array_fill(0, count($f) - 1, "");
 
     $c[$f["id"]] = $id;
 
