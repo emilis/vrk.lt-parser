@@ -13,6 +13,8 @@ $fields = array(
     "id",
     "vardas",
     "partija",
+    "iskele",
+    "iskele.nr",
     "savivaldybe",
     "numeris",
     "gimimo_data",
@@ -22,7 +24,10 @@ $fields = array(
     "nesuderinamos_pareigos",
     "kt_valst_valdzia",
     "kt_pilietybe",
+    "pilietybe.salis",
+    "kt_pasyvioji_teise",
     "nusikaltimas",
+    "nusikaltimas.pastaba",
     "gimimo_vieta",
     "tautybe",
     "issilavinimas",
@@ -31,12 +36,13 @@ $fields = array(
     "partijos",
     "anksciau_isrinktas",
     "darboviete",
-    "pareigos",
+    //"pareigos",
     "visuomenine_veikla",
     "pomegiai",
     "seima",
     "sutuoktinis",
     "vaikai",
+    "apie_save",
     
     "turtas",
     "vertybes",
@@ -130,6 +136,11 @@ function get_candidate_data($entry, $path, $f) {
     $kita = get_kita_data($path . "Kita.html");
     foreach ($kita as $k => $v) { $c[$f[$k]] = $v; }
 
+    // Remove newlines and other special chars:
+    $c = array_map(function($item) {
+            return trim(str_replace(array("\r", "\n"), " ", $item));
+    }, $c);
+
     return $c;
 }
 
@@ -146,26 +157,39 @@ function get_anketa_data($file_name) {
     $td = $xml->body->div[0]->div->div[1]->div[1]->div[0]->div[0]->table->tr->td;
     $td_xml = $td->asXml();
 
-    // vardas:
-    // /html/body/div/div/div[2]/div[2]/div/div/table/tbody/tr/td/b
-    $data["vardas"] = get_xpath_text($td, "b:0");
+    $fields = array(
+        "Savivaldybė:" => "savivaldybe",
+        "Iškėlė:" => "partija",
+        "numeris sąraše:" => "numeris",
+    );
+    $skip = array(
+        "Politinių partijų ir kandidatų atstovus rinkimams, kandidatus kviečiame susipažinti su skelbiamais duomenimis ir, jei pastebėsite netikslumus ar neatitikimus pareiškiniams dokumentams, prašome skubiai kreiptis į savivaldybių rinkimų komisijas",
+        ")",
+    );
 
-    $i = 1;
-
-    if (strpos($td_xml, "Savivaldybė:")) {
-        $data["savivaldybe"] = get_xpath_text($td, "b:$i");
-        $i++;
+    $parts = get_anketa_parts($td_xml);
+    $field_name = "vardas";
+    while ($part = array_shift($parts)) {
+        if (array_key_exists($part, $fields)) {
+            $field_name = $fields[$part];
+        } else if ($part == "Išsikėlęs kandidatas") {
+            $data["iskele"] = "pats";
+        } else if ($part == "(Iškėlė:") {
+            $field_name = "iskele";
+            $fields["numeris sąraše:"] = "iskele.nr";
+        } else if (!in_array($part, $skip)) {
+            if (array_key_exists($field_name, $data)) {
+                $data[$field_name] .= " $part";
+            } else {
+                $data[$field_name] = $part;
+            }
+        }
     }
 
-    if (strpos($td_xml, "Iškėlė:")) {
-        $data["partija"] = get_xpath_text($td, "b:$i");
-        $i++;
-    }
+    $data["vardas"] = ucwords(mb_strtolower(
+        preg_replace('/\s+/', " ", $data["vardas"]),
+        "UTF-8"));
 
-    if (strpos($td_xml, "numeris")) {
-        $data["numeris"] = get_xpath_text($td, "b:$i");
-        $i++;
-    }
 
     if (strpos($xml->body->div[0]->div->div[1]->div[1]->div[0]->div[1]->asXml(), "Rengiama")) {
         return $data;
@@ -176,104 +200,82 @@ function get_anketa_data($file_name) {
     $td2 = $xml->body->div[0]->div->div[1]->div[1]->div[0]->div[1]->table->tr->td;
     $td2_xml = $td2->asXml();
 
-    // gimimo_data:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b
-    $data["gimimo_data"] = get_xpath_text($td2, "b:0");
 
-    // gyvena:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[2]
-    $data["gyvena"] = get_xpath_text($td2, "b:1");
+    $fields = array_flip(array(
+        "gimimo_data" => "5. Gimimo data",
+        "gyvena" => "6. Nuolatinės gyvenamosios vietos adresas",
+        "nebaigta_bausme" => "8.1 Ar neturite nebaigtos atlikti teismo nuosprendžiu paskirtos bausmės?",
+        "pareigunas" => "8.2 Ar nesate asmuo, atliekantis privalomąją karo arba alternatyviąją krašto apsaugos tarnybą, neišėjęs į atsargą ar pensiją profesinės karo tarnybos karys, statutinės institucijos ar įstaigos pareigūnas, kuriam pagal specialius įstatymus ar statutus apribota teisė dalyvauti politinėje veikloje?",
+        "nesuderinamos_pareigos" => "8.3 Ar einate pareigas, nesuderinamas su savivaldybės tarybos nario pareigomis? 90 str. 1 d. „Savivaldybės tarybos nario pareigos nesuderinamos su Respublikos Prezidento, Seimo nario, Europos Parlamento nario, Vyriausybės nario pareigomis, su Vyriausybės įstaigos ar įstaigos prie ministerijos vadovo, kurio veikla susijusi su savivaldybių veiklos priežiūra ir kontrole, pareigomis, su Vyriausybės atstovo apskrityje pareigomis, su valstybės kontrolieriaus ir jo pavaduotojo pareigomis. Be to, savivaldybės tarybos nario pareigos nesuderinamos su tos savivaldybės mero politinio (asmeninio) pasitikėjimo valstybės tarnautojo pareigomis, tos savivaldybės kontrolieriaus ar tos savivaldybės kontrolieriaus tarnybos valstybės tarnautojo pareigomis, su tos savivaldybės administracijos direktoriaus ir jo pavaduotojo ar tos savivaldybės administracijos valstybės tarnautojo ir darbuotojo, dirbančio pagal darbo sutartis, pareigomis, su tos savivaldybės biudžetinės įstaigos vadovo pareigomis, tos savivaldybės viešosios įstaigos, tos savivaldybės įmonės vienasmenio vadovo ir kolegialaus valdymo organo nario pareigomis, tos savivaldybės kontroliuojamos akcinės bendrovės kolegialaus valdymo organo (valdybos) nario pareigomis arba tos savivaldybės kontroliuojamos akcinės bendrovės vadovo pareigomis.“",
+        "kt_valst_valdzia" => "8.4 Ar esate kitos valstybės renkamos valdžios institucijos narys?",
+        "kt_pilietybe" => "8.5 Ar turite kitos valstybės pilietybę?",
+        "pilietybe.salis" => "8.5.1 Jeigu turite, prašome nurodyti, kokios?",
+        "kt_pasyvioji_teise" => "8.5.2 ar Jūsų pasyvioji rinkimų teisė nėra apribota valstybėje, kurios pilietis Jūs esate?",
+        "nusikaltimas" => "9. Ar turite ką nurodyti pagal Lietuvos Respublikos savivaldybių tarybų rinkimų įstatymo 89 straipsnio 1 dalyje išdėstytus reikalavimus, jeigu taip, įrašykite čia:",
+        "nusikaltimas.pastaba" => "Jeigu į 9 p. klausimą atsakėte „Taip“ ir norite papildomai apie tai paaiškinti, tai įrašykite čia:",
+        "gimimo_vieta" => "10. Gimimo vieta",
+        "tautybe" => "11. Tautybė",
+        "mokslo_laipsnis" => "Jei turite, nurodykite mokslo laipsnį",
+        "kalbos" => "13. Kokias užsienio kalbas mokate",
+        "partijos" => "14. Kokios partijos, politinės organizacijos narys esate (buvote)",
+        "darboviete" => "16. Pagrindinė darbovietė, pareigos",
+        "visuomenine_veikla" => "17. Visuomeninė veikla",
+        "pomegiai" => "18. Pomėgiai",
+        "seima" => "19. Šeiminė padėtis",
+        "sutuoktinis" => "Vyro arba žmonos vardas (pavardė)",
+        "vaikai" => "20. Vaikų vardai (pavardės)",
+        "apie_save" => "21. Be jau išvardytų atsakymų, ką dar norėtumėte parašyti apie save",
+    ));
+    $fields["Jei turite, nurodykite mokslo vardą"] = "mokslo_laipsnis";
+    $skip = array(
+        "8. Pagal Lietuvos Respublikos savivaldybių tarybų rinkimų įstatymo 35 straipsnio 12 dalį Jūs turite atsakyti į šiuos klausimus:",
+        "89 str. 1 d. „Kiekvienas kandidatas turi viešai paskelbti, jeigu jis po 1990 m. kovo 11 d. Lietuvos Respublikos ar užsienio valstybės teismo įsiteisėjusiu nuosprendžiu (sprendimu) buvo pripažintas kaltu dėl nusikalstamos veikos arba įsiteisėjusiu Lietuvos Respublikos ar užsienio valstybės teismo nuosprendžiu (sprendimu) bet kada buvo pripažintas kaltu dėl sunkaus ar labai sunkaus nusikaltimo. Apie tai jis nurodo kandidato į savivaldybės tarybos narius anketoje, nesvarbu, ar teistumas pasibaigęs ar panaikintas. Rinkimų komisijos leidžiamame kandidato plakate ar plakate su kandidatų sąrašu, prie kandidato pavardės turi būti pažymėta: „Teismo nuosprendžiu buvo pripažintas kaltu dėl nusikalstamos veikos“. Tai pažymėti neprivaloma, jeigu asmuo okupacinio režimo teismo buvo pripažintas kaltu dėl nusikaltimo valstybei.\"",
+    );
+    $parts = get_anketa_parts($td2_xml);
+    $field_name = false;
 
-    // nebaigta_bausme:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[3]
-    $data["nebaigta_bausme"] = get_xpath_text($td2, "b:2");
-
-    // pareigunas:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[4]
-    $data["pareigunas"] = get_xpath_text($td2, "b:3");
-
-    // nesuderinamos_pareigos:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[5]
-    $data["nesuderinamos_pareigos"] = get_xpath_text($td2, "b:4");
-
-    // kt_valst_valdzia:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[6]
-    $data["kt_valst_valdzia"] = get_xpath_text($td2, "b:5");
-
-    // kt_pilietybe:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[7]
-    $data["kt_pilietybe"] = get_xpath_text($td2, "b:6");
-
-    // nusikaltimas:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[8]
-    $data["nusikaltimas"] = get_xpath_text($td2, "b:7");
-
-    // gimimo vieta:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[9]
-    $data["gimimo_vieta"] = get_xpath_text($td2, "b:8");
-
-    // tautybe:
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[10]
-    $data["tautybe"] = get_xpath_text($td2, "b:9");
+    while ($part = array_shift($parts)) {
+        if (array_key_exists($part, $fields)) {
+            $field_name = $fields[$part];
+        } else if (!in_array($part, $skip)) {
+            if (array_key_exists($field_name, $data)) {
+                $data[$field_name] .= " $part";
+            } else {
+                $data[$field_name] = $part;
+            }
+        }
+    }
 
     
     // issilavinimas:
     // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/table
     $table_i = 0;
-    if (strpos($td2_xml, "Išsilavinimas")) {
+    if (strpos($td2_xml, "12. Išsilavinimas:")) {
         $data["issilavinimas"] = get_table_rows($td2->table[$table_i], 2,
                 array("Išsilavinimas", "Įstaiga", "Specialybė", "Baigimo metai")
             );
         $table_i++;
     }
 
-    // mokslo_laipsnis
-    // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/b[11]
-    $data["mokslo_laipsnis"] = get_xpath_text($td2, "b:10");
-
-    // kalbos:
-    $data["kalbos"] = get_xpath_text($td2, "b:11");
-
-    // partijos:
-    $data["partijos"] = get_xpath_text($td2, "b:12");
-
     // pareigos:
     // /html/body/div/div/div[2]/div[2]/div/div[2]/table/tbody/tr/td/table[2]/tbody/tr[2]
     if (strpos($td2_xml, "Institucijos pavadinimas")) {
-        $data["pareigos"] = get_table_rows($td2->table[$table_i], 2,
+        $data["anksciau_isrinktas"] = get_table_rows($td2->table[$table_i], 2,
                 array("Institucija,pareigos", "laikotarpis")
             );
     }
-
-    // darboviete:
-    $data["darboviete"] = get_xpath_text($td2, "b:13");
-
-    // visuomeninė veikla:
-    $data["visuomenine_veikla"] = get_xpath_text($td2, "b:14");
-
-    // pomegiai:
-    $data["pomegiai"] = get_xpath_text($td2, "b:15");
-
-    // seima:
-    $data["seima"] = get_xpath_text($td2, "b:16");
-
-    $i = 17;
-    // sutuoktinis:
-    if (strpos($td2_xml, "vyro")) {
-        $data["sutuoktinis"] = get_xpath_text($td2, "b:$i");
-        $i++;
-    }
-
-    // vaikai:
-    if (strpos($td2_xml, "vardai")) {
-        $data["vaikai"] = get_xpath_text($td2, "b:$i");
-    }
-
 
 
     return $data;
 }
 
+
+    /**
+     *
+     */
+    function format_money($str) {
+        return trim(str_replace(array(",", "Lt"), array(".", ""), $str));
+    }
 
 /**
  *
@@ -290,11 +292,11 @@ function get_deklaracijos_data($file_name) {
     if (!strpos($td_xml, "Turto deklaracijos duomenys nesuvesti")) {
         $table = $td->table[$table_i];
 
-        $data["turtas"] = get_xpath_text($table, "tr:1/td:1");
-        $data["vertybes"] = get_xpath_text($table, "tr:2/td:1");
-        $data["pinigai"] = get_xpath_text($table, "tr:3/td:1");
-        $data["paskolino"] = get_xpath_text($table, "tr:4/td:1");
-        $data["pasiskolino"] = get_xpath_text($table, "tr:5/td:1");
+        $data["turtas"] = format_money(get_xpath_text($table, "tr:1/td:1"));
+        $data["vertybes"] = format_money(get_xpath_text($table, "tr:2/td:1"));
+        $data["pinigai"] = format_money(get_xpath_text($table, "tr:3/td:1"));
+        $data["paskolino"] = format_money(get_xpath_text($table, "tr:4/td:1"));
+        $data["pasiskolino"] = format_money(get_xpath_text($table, "tr:5/td:1"));
 
         $table_i++;
     }
@@ -302,8 +304,8 @@ function get_deklaracijos_data($file_name) {
     if (!strpos($td_xml, "Pajamų deklaracijos duomenys nesuvesti")) {
         $table = $td->table[$table_i];
 
-        $data["pajamos"] = get_xpath_text($table, "tr:2/td:1");
-        $data["mokesciai"] = get_xpath_text($table, "tr:3/td:1");
+        $data["pajamos"] = format_money(get_xpath_text($table, "tr:2/td:1"));
+        $data["mokesciai"] = format_money(get_xpath_text($table, "tr:3/td:1"));
 
         $table_i++;
     }
@@ -408,5 +410,27 @@ function get_table_rows($table, $start = 0, $fields = false) {
         }
         $return[] = $row;
     }
-    return json_encode($return);
+
+    // Replace quote characters with unicode equivalent before returning:
+    return json_encode($return, JSON_HEX_QUOT);
 }
+
+
+/**
+ *
+ */
+function get_anketa_parts($xml) {
+    $xml = preg_replace('|<table.*</table>|msS', "<br/>", $xml);
+
+    $parts = preg_split('{<(b|/b|br/|br /)>}S', $xml, null, PREG_SPLIT_NO_EMPTY);
+    $parts = array_map(function($item) {
+            return trim(strip_tags(str_replace(array("\n", "\r",), " ", $item)));
+    }, $parts);
+
+    $parts = array_filter($parts, function ($item) { return $item; });
+
+    return $parts;
+}
+
+
+
