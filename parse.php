@@ -155,6 +155,10 @@ function get_anketa_data($file_name) {
 
     // first data table:
     $td = $xml->body->div[0]->div->div[1]->div[1]->div[0]->div[0]->table->tr->td;
+    if (!$td) {
+        echo "\nFailed to get anketa first TD in $file_name.\n";
+        return $data;
+    }
     $td_xml = $td->asXml();
 
     $fields = array(
@@ -286,6 +290,9 @@ function get_deklaracijos_data($file_name) {
     $xml = get_xml($file_name);
 
     $td = $xml->body->div->div->div[1]->div[1]->div->div[1]->table->tr->td;
+    if (!$td) {
+        echo "\nFailed to get deklaracijos data from $file_name.\n";
+    }
     $td_xml = $td->asXml();
 
     $table_i = 0;
